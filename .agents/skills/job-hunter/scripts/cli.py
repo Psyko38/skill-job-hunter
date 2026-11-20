@@ -28,6 +28,7 @@ from .scorer import score_offer
 from .scrapers import SCRAPER_REGISTRY
 from .security import atomic_write_text, detect_prompt_injection
 from .validate_profile import VALID_CONTRACTS, validate_profile
+from .webui import run_webui_server
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = (
@@ -696,6 +697,21 @@ def _run_validate_profile(args: argparse.Namespace) -> int:
     return 0 if report["valid"] else 1
 
 
+def _run_webui(args: argparse.Namespace) -> int:
+    if not (1 <= args.port <= 65535):
+        raise SystemExit(f"--port must be between 1 and 65535 (got {args.port})")
+    return run_webui_server(
+        host=args.host,
+        port=args.port,
+        history_path=Path(args.history),
+        runs_dir=Path(args.runs_dir),
+        drafts_dir=Path(args.drafts_dir),
+        profile_path=Path(args.profile),
+        follow_up_days=max(1, args.follow_up_days),
+        open_browser=bool(args.open),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the CLI argument parser."""
     parser = argparse.ArgumentParser(prog="job-hunter", description="Job Hunter skill CLI")
@@ -796,6 +812,20 @@ def build_parser() -> argparse.ArgumentParser:
     val_p = sub.add_parser("validate-profile", help="Validate profile.yaml and CV PDF")
     val_p.add_argument("--profile", default=str(DEFAULT_PROFILE_PATH))
     val_p.set_defaults(func=_run_validate_profile)
+
+    web_p = sub.add_parser(
+        "webui",
+        help="Launch the local Material Design 3 WebUI dashboard (tasks, sent pipeline, scraped offers, drafts, runs)",
+    )
+    web_p.add_argument("--host", default="127.0.0.1", help="Bind address (defaults to 127.0.0.1 for local privacy)")
+    web_p.add_argument("--port", type=int, default=8765, help="HTTP port (default: 8765)")
+    web_p.add_argument("--open", action="store_true", help="Open the WebUI automatically in the default browser")
+    web_p.add_argument("--follow-up-days", type=int, default=7, help="Days before flagging sent offers for follow-up")
+    web_p.add_argument("--history", default=str(DEFAULT_HISTORY_PATH))
+    web_p.add_argument("--runs-dir", default=str(DEFAULT_RUNS_DIR))
+    web_p.add_argument("--drafts-dir", default=str(DEFAULT_DRAFTS_DIR))
+    web_p.add_argument("--profile", default=str(DEFAULT_PROFILE_PATH))
+    web_p.set_defaults(func=_run_webui)
 
     return parser
 

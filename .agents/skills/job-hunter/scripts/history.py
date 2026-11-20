@@ -152,16 +152,23 @@ class OfferHistory:
         status: OfferStatus,
         draft_dir: str = "",
         notes: str = "",
+        *,
+        replace_notes: bool = False,
+        preserve_timestamp_if_same_status: bool = False,
     ) -> bool:
         """Update status (and optional draft_dir/notes) for a tracked offer ID."""
         if offer_id not in self.records:
             return False
+        previous_status = self.records[offer_id].get("status")
         self.records[offer_id]["status"] = status
         if draft_dir:
             self.records[offer_id]["draft_dir"] = draft_dir
-        if notes:
+        if replace_notes:
             self.records[offer_id]["notes"] = notes
-        self.records[offer_id]["updated_at"] = _now_iso()
+        elif notes:
+            self.records[offer_id]["notes"] = notes
+        if not (preserve_timestamp_if_same_status and previous_status == status):
+            self.records[offer_id]["updated_at"] = _now_iso()
         return True
 
     def get_stats(self, *, follow_up_days: int = 7) -> dict[str, Any]:

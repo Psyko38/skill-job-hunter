@@ -11,6 +11,7 @@ Workflow automatisé et sécurisé de recherche d'offres (`stage`, `alternance`,
 - **Enrichissement sécurisé des contacts recruteurs** : protection SSRF (validation IP/DNS à chaque redirection, limite de taille 1,5 Mo), dé-obfuscation d'emails, détection ATS et cache par domaine.
 - **Défenses de sécurité intégrées** : détection de prompt-injection dans les annonces scrappées, validation stricte des brouillons (`--dry-run`, blocage placeholders/CRLF/domaines écoles/doublons déjà envoyés), vérification `%PDF-` du CV, protection path traversal, écritures atomiques et protection contre l'injection de formules CSV.
 - **Suivi complet du pipeline** : statuts (`drafted`, `sent`, `interview`, `offer`, `rejected`, `ignored`), notes, tableau de bord `stats` et détection automatique des relances J+7.
+- **WebUI locale Material Design 3 (`job-hunter webui`)** : interface web locale (`127.0.0.1:8765`, thème Clair/Sombre/Auto et 4 accents M3, 100 % sans dépendance externe) avec 5 vues (**À faire**, **Envois & Suivi** en Kanban/Tableau, **Offres scrappées**, **Brouillons**, **Runs de scraping**), aperçu et téléchargement des `.eml`, export CSV et protections CSP / anti-CSRF / anti-XSS.
 
 ### `profile-setup` (`.agents/skills/job-hunter/profile-setup/`)
 Configuration et validation sécurisée du profil candidat (`references/profile.yaml`) à partir d'un CV PDF ou texte.
@@ -37,6 +38,7 @@ Une fois `"ready": true` confirmé par `doctor`, demandez simplement à votre ag
 - *« Utilise `job-hunter` pour chercher des offres selon mon profil et montre-moi les meilleures. »*
 - *« Prépare les brouillons `.md` et `.eml` pour les offres retenues. »*
 - *« Affiche les stats de mes candidatures et celles à relancer cette semaine. »*
+- *« Lance la WebUI `job-hunter` pour voir mes tâches à faire, mes envois et les offres scrappées. »*
 
 ## Installation manuelle (sans agent)
 
@@ -71,6 +73,10 @@ uv run --project .agents/skills/job-hunter job-hunter build-drafts --drafts-json
 # 5. Suivi & relances
 uv run --project .agents/skills/job-hunter job-hunter mark-status --offer-id <id> --status sent --notes "Envoyé"
 uv run --project .agents/skills/job-hunter job-hunter stats --follow-up-days 7
+
+# 6. Tableau de bord WebUI local (Material Design 3)
+uv run --project .agents/skills/job-hunter job-hunter webui --open
+# Options disponibles : --port 8765 --follow-up-days 7 --host 127.0.0.1
 ```
 
 ## Tests

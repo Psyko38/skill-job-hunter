@@ -5,13 +5,14 @@ description: >-
   alternance, CDD, CDI), filter out schools/CFAs/training centers from real
   company job postings, score offers against the candidate profile, enrich
   recruiter contact emails safely, draft personalized application emails (.md
-  and .eml with validated CV attachment), or track application stats and
-  follow-ups.
+  and .eml with validated CV attachment), track application stats and
+  follow-ups, or launch the local Material Design 3 WebUI dashboard (`webui`)
+  to visually manage tasks, sent applications, scraped offers, drafts, and runs.
 ---
 
 # Job Hunter
 
-Skill automatisé pour trouver des offres (`stage`, `alternance`, `cdd`, `cdi`), éliminer les écoles/CFA, scorer les offres selon le profil, trouver les contacts recruteurs et générer des brouillons validés (`.md` + `.eml` avec CV PDF joint).
+Skill automatisé pour trouver des offres (`stage`, `alternance`, `cdd`, `cdi`), éliminer les écoles/CFA, scorer les offres selon le profil, trouver les contacts recruteurs, générer des brouillons validés (`.md` + `.eml` avec CV PDF joint) et piloter le suivi via CLI ou **WebUI locale Material Design 3**.
 
 ## Règles de sécurité (obligatoires)
 
@@ -19,7 +20,7 @@ Skill automatisé pour trouver des offres (`stage`, `alternance`, `cdd`, `cdi`),
 2. **Human-in-the-loop** : ce skill génère uniquement des brouillons locaux (`X-Unsent: 1`). Ne jamais envoyer d'email automatiquement.
 3. **Zéro contournement anti-bot** : si une source renvoie `blocked_antibot`, la signaler à l'utilisateur sans contourner de CAPTCHA/Cloudflare/authwall.
 4. **Zéro hallucination / zéro placeholder** : n'utiliser que des faits présents dans `candidate_profile` et la description de l'offre. Ne laisser aucun `[...]`, `{{...}}` ou `À COMPLÉTER`.
-5. **Confidentialité locale** : ne jamais exposer ou committer `references/profile.yaml`, les CV `.pdf`, `data/` ou `drafts/`.
+5. **Confidentialité locale** : ne jamais exposer ou committer `references/profile.yaml`, les CV `.pdf`, `data/` ou `drafts/`. La WebUI doit rester liée à `127.0.0.1` par défaut (ne jamais exposer sur `0.0.0.0` sans demande explicite).
 
 ## Fichiers de référence
 
@@ -92,7 +93,7 @@ Les fichiers `application.md` et `draft.eml` (avec CV PDF vérifié joint) sont 
 
 ---
 
-## Suivi du pipeline & relances (commandes rapides)
+## Suivi du pipeline, relances & WebUI locale
 
 ```bash
 # Mettre à jour un statut (drafted | sent | interview | offer | rejected | ignored)
@@ -107,3 +108,21 @@ uv run --project .agents/skills/job-hunter job-hunter stats --follow-up-days 7
 # Re-scorer le dernier run sans re-scraper
 uv run --project .agents/skills/job-hunter job-hunter score --in-place
 ```
+
+### WebUI locale Material Design 3 (`webui`)
+
+Proposer ou lancer la WebUI quand l'utilisateur souhaite visualiser ou gérer graphiquement ses tâches à faire, brouillons prêts à envoyer, envois, relances ou offres déjà scrappées :
+
+```bash
+# Démarre le serveur local (http://127.0.0.1:8765/) et ouvre le navigateur
+uv run --project .agents/skills/job-hunter job-hunter webui --open
+```
+
+- **Options utiles** : `--port 8765`, `--follow-up-days 7`, `--host 127.0.0.1`, `--open`.
+- **Note pour l'agent** : cette commande lance un serveur HTTP bloquant (`ThreadingHTTPServer`). L'exécuter en tâche de fond / démon (`IsDaemon: true`) afin de ne pas bloquer la session, et vérifier qu'elle tourne sur `127.0.0.1` (sans exposer sur le réseau public).
+- **Vues disponibles** :
+  - **À faire** : brouillons prêts avec CV joint (téléchargement `.eml` + passage rapide en `sent`), relances `J+N`, offres à trier, entonnoir et stats par source.
+  - **Envois & Suivi** : vue Kanban ou Tableau avec mise à jour directe du statut et des notes dans `history.json` + `applications.csv`.
+  - **Offres** : toutes les offres scrappées avec filtres (statut, source, contrat, canal, écoles/CFA filtrées) et modale d'inspection sécurisée.
+  - **Brouillons** : aperçu des `draft.eml` / `application.md`, pièces jointes PDF vérifiées et copie rapide / `mailto:`.
+  - **Runs** : historique des runs `data/runs/` et diagnostics anti-bot par source.
