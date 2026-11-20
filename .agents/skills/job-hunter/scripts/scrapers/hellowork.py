@@ -27,7 +27,12 @@ _CONTRACT_MAP: dict[ContractType, str] = {
 }
 
 
-def build_hellowork_search_url(query: str, contract: ContractType, location: str) -> str:
+def build_hellowork_search_url(
+    query: str,
+    contract: ContractType,
+    location: str,
+    remote: bool = False,
+) -> str:
     """Build a HelloWork search URL."""
     hw_contract = _CONTRACT_MAP[contract]
     url = (
@@ -36,6 +41,8 @@ def build_hellowork_search_url(query: str, contract: ContractType, location: str
     )
     if location:
         url += f"&l={quote_plus(location)}"
+    if remote:
+        url += "&t=Complet,Partiel"
     return url
 
 
@@ -88,6 +95,7 @@ def parse_hellowork_detail_html(
         title=title,
         company=company,
         location=fields.get("location") or fallback_location,
+        remote=fields.get("remote", ""),
         contract_type=contract,
         url=url,
         company_url=fields.get("company_url", ""),
@@ -111,7 +119,7 @@ class HelloWorkScraper(BaseScraper):
         remote: bool,
         limit: int,
     ) -> ScrapeResult:
-        search_url = build_hellowork_search_url(query, contract, location)
+        search_url = build_hellowork_search_url(query, contract, location, remote=remote)
         offers: list[JobOffer] = []
         try:
             with playwright_context() as context:
@@ -127,17 +135,20 @@ class HelloWorkScraper(BaseScraper):
                 links = parse_hellowork_search_links(html, limit=limit)
                 for link in links:
                     polite_sleep()
-                    d_status, d_url, d_html = fetch_page_html(page, link, wait_ms=1000)
-                    if is_antibot_response(d_status, d_html, d_url):
+                    try:
+                        d_status, d_url, d_html = fetch_page_html(page, link, wait_ms=1000)
+                        if is_antibot_response(d_status, d_html, d_url):
+                            continue
+                        offer = parse_hellowork_detail_html(
+                            d_html,
+                            url=link,
+                            contract=contract,
+                            fallback_location=location,
+                        )
+                        if offer:
+                            offers.append(offer)
+                    except Exception:  # noqa: BLE001
                         continue
-                    offer = parse_hellowork_detail_html(
-                        d_html,
-                        url=link,
-                        contract=contract,
-                        fallback_location=location,
-                    )
-                    if offer:
-                        offers.append(offer)
             return ScrapeResult(source=self.source_name, status="ok", offers=offers)
         except Exception as exc:  # noqa: BLE001
             return ScrapeResult(

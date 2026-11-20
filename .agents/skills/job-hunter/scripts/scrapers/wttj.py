@@ -96,6 +96,7 @@ def parse_wttj_detail_html(
         title=title,
         company=company,
         location=fields.get("location") or fallback_location,
+        remote=fields.get("remote", ""),
         contract_type=contract,
         url=url,
         company_url=company_url,
@@ -135,17 +136,20 @@ class WTTJScraper(BaseScraper):
                 links = parse_wttj_search_links(html, limit=limit)
                 for link in links:
                     polite_sleep()
-                    d_status, d_url, d_html = fetch_page_html(page, link, wait_ms=1000)
-                    if is_antibot_response(d_status, d_html, d_url):
+                    try:
+                        d_status, d_url, d_html = fetch_page_html(page, link, wait_ms=1000)
+                        if is_antibot_response(d_status, d_html, d_url):
+                            continue
+                        offer = parse_wttj_detail_html(
+                            d_html,
+                            url=link,
+                            contract=contract,
+                            fallback_location=location,
+                        )
+                        if offer:
+                            offers.append(offer)
+                    except Exception:  # noqa: BLE001
                         continue
-                    offer = parse_wttj_detail_html(
-                        d_html,
-                        url=link,
-                        contract=contract,
-                        fallback_location=location,
-                    )
-                    if offer:
-                        offers.append(offer)
             return ScrapeResult(source=self.source_name, status="ok", offers=offers)
         except Exception as exc:  # noqa: BLE001
             return ScrapeResult(

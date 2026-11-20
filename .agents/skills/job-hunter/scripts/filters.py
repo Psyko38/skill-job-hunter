@@ -1,4 +1,4 @@
-"""Deterministic rule-based filtering (schools/CFAs vs real jobs) and language detection."""
+"""Deterministic rule-based filtering (schools/CFAs, contracts, preferences) and language detection."""
 
 from __future__ import annotations
 
@@ -108,8 +108,19 @@ class SchoolFilterRules:
 def _extract_domain(url: str) -> str:
     if not url:
         return ""
-    host = urlparse(url).netloc.lower()
+    host = (urlparse(url).hostname or "").lower()
     return host.removeprefix("www.")
+
+
+def is_blacklisted_email_domain(email: str, rules: SchoolFilterRules) -> bool:
+    """Return True if an email address belongs to a blacklisted school/CFA domain."""
+    if not email or "@" not in email:
+        return False
+    email_domain = email.rsplit("@", 1)[-1].strip().lower()
+    return any(
+        email_domain == blocked or email_domain.endswith(f".{blocked}")
+        for blocked in rules.blacklisted_domains
+    )
 
 
 def evaluate_offer(offer: JobOffer, rules: SchoolFilterRules) -> FilterDecision:
@@ -126,18 +137,15 @@ def evaluate_offer(offer: JobOffer, rules: SchoolFilterRules) -> FilterDecision:
 
     for candidate_url in (offer.company_url, offer.apply_url, offer.url):
         domain = _extract_domain(candidate_url)
-        if any(
+        if domain and any(
             domain == blocked or domain.endswith(f".{blocked}")
             for blocked in rules.blacklisted_domains
         ):
             return FilterDecision(False, f"blacklisted_domain:{domain}")
 
     for email in offer.emails_found:
-        email_domain = email.rsplit("@", 1)[-1].lower()
-        if any(
-            email_domain == blocked or email_domain.endswith(f".{blocked}")
-            for blocked in rules.blacklisted_domains
-        ):
+        if is_blacklisted_email_domain(email, rules):
+            email_domain = email.rsplit("@", 1)[-1].lower()
             return FilterDecision(False, f"blacklisted_email_domain:{email_domain}")
 
     body_norm = normalize_text(f"{offer.title} {offer.description}")
@@ -148,18 +156,57 @@ def evaluate_offer(offer: JobOffer, rules: SchoolFilterRules) -> FilterDecision:
     return FilterDecision(True, "")
 
 
-_STAGE_ONLY_RE = re.compile(r"\b(?:stage|stagiaire|pfe|internship|intern)\b")
-_ALTERNANCE_RE = re.compile(r"\b(?:alternance|alternant|apprentissage|apprenti|professionnalisation|apprenticeship)\b")
+def evaluate_profile_preferences(offer: JobOffer, profile: dict[str, Any] | None) -> FilterDecision:
+    """Filter offers against optional user preferences (exclude_companies / exclude_keywords)."""
+    if not profile or not isinstance(profile, dict):
+        return FilterDecision(True, "")
+    prefs = profile.get("preferences") or {}
+    if not isinstance(prefs, dict):
+        return FilterDecision(True, "")
+
+    company_norm = normalize_text(offer.company)
+    for raw_company in prefs.get("exclude_companies") or []:
+        target = normalize_text(str(raw_company))
+        if target and re.search(rf"\b{re.escape(target)}\b", company_norm):
+            return FilterDecision(False, f"excluded_company:{target}")
+
+    text_norm = normalize_text(f"{offer.title} {offer.description}")
+    for raw_kw in prefs.get("exclude_keywords") or []:
+        kw = normalize_text(str(raw_kw))
+        if kw and re.search(rf"(?<![a-z0-9_+#.]){re.escape(kw)}(?![a-z0-9_+#])", text_norm):
+            return FilterDecision(False, f"excluded_keyword:{kw}")
+
+    return FilterDecision(True, "")
+
+
+_STAGE_RE = re.compile(r"\b(?:stage|stagiaire|pfe|internship|intern)\b")
+_ALTERNANCE_RE = re.compile(
+    r"\b(?:alternance|alternant|alternante|apprentissage|apprenti|apprentie|"
+    r"professionnalisation|apprenticeship)\b"
+)
+_CDI_RE = re.compile(r"\bcdi\b")
+_CDD_RE = re.compile(r"\bcdd\b")
 
 
 def is_contract_compatible(offer: JobOffer, requested_contract: ContractType) -> bool:
-    """Reject obvious contract mismatches (e.g., stage-only titles during alternance search)."""
+    """Reject obvious contract mismatches in the job title across all 4 contract types."""
     title_norm = normalize_text(offer.title)
+    has_stage = bool(_STAGE_RE.search(title_norm))
+    has_alt = bool(_ALTERNANCE_RE.search(title_norm))
+    has_cdi = bool(_CDI_RE.search(title_norm))
+    has_cdd = bool(_CDD_RE.search(title_norm))
+
     if requested_contract == "alternance":
-        if _STAGE_ONLY_RE.search(title_norm) and not _ALTERNANCE_RE.search(title_norm):
+        if (has_stage or has_cdi or has_cdd) and not has_alt:
             return False
     elif requested_contract == "stage":
-        if _ALTERNANCE_RE.search(title_norm) and not _STAGE_ONLY_RE.search(title_norm):
+        if (has_alt or has_cdi or has_cdd) and not has_stage:
+            return False
+    elif requested_contract == "cdi":
+        if (has_stage or has_alt or has_cdd) and not has_cdi:
+            return False
+    elif requested_contract == "cdd":
+        if (has_stage or has_alt or has_cdi) and not has_cdd:
             return False
     return True
 

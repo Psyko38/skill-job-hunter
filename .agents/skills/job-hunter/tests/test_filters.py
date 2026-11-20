@@ -2,7 +2,13 @@
 
 from pathlib import Path
 
-from scripts.filters import SchoolFilterRules, detect_language, evaluate_offer, is_contract_compatible
+from scripts.filters import (
+    SchoolFilterRules,
+    detect_language,
+    evaluate_offer,
+    evaluate_profile_preferences,
+    is_contract_compatible,
+)
 from scripts.models import JobOffer
 
 RULES_PATH = Path(__file__).resolve().parent.parent / "references" / "school_blacklist.yaml"
@@ -82,5 +88,28 @@ def test_rejects_dawan_and_afpi() -> None:
 
 def test_is_contract_compatible() -> None:
     assert not is_contract_compatible(_make_offer(title="Stage PFE - Développeur Fullstack"), "alternance")
+    assert not is_contract_compatible(_make_offer(title="Développeur Fullstack CDI"), "alternance")
+    assert not is_contract_compatible(_make_offer(title="Stage Développeur Web"), "cdi")
+    assert not is_contract_compatible(_make_offer(title="Alternance Développeur Web"), "cdd")
     assert is_contract_compatible(_make_offer(title="Stage ou Alternance - Développeur"), "alternance")
     assert is_contract_compatible(_make_offer(title="Développeur Full Stack"), "alternance")
+
+
+def test_evaluate_profile_preferences_and_expanded_schools() -> None:
+    rules = SchoolFilterRules.from_yaml(RULES_PATH)
+    assert not evaluate_offer(_make_offer(company="M2i Formation"), rules).is_valid
+    assert not evaluate_offer(_make_offer(company="La Plateforme"), rules).is_valid
+
+    profile = {
+        "preferences": {
+            "exclude_companies": ["BadESN"],
+            "exclude_keywords": ["COBOL", "WordPress"],
+        }
+    }
+    assert not evaluate_profile_preferences(_make_offer(company="BadESN Lyon"), profile).is_valid
+    assert not evaluate_profile_preferences(
+        _make_offer(company="GoodCorp", description="Maintenance de sites WordPress"), profile
+    ).is_valid
+    assert evaluate_profile_preferences(
+        _make_offer(company="GoodCorp", description="Stack Python et React"), profile
+    ).is_valid

@@ -53,3 +53,79 @@ def test_enrich_offer_crawls_company_site_when_no_email_in_offer() -> None:
     enriched = enrich_offer_contact(offer, client=client)
     assert enriched.contact_email == "talent@superstartup.fr"
     assert enriched.email_source == "company_site:https://superstartup.fr/recrutement"
+    assert enriched.apply_channel == "email"
+
+
+def test_contact_finder_blocks_ssrf_and_supports_deobfuscation_ats_and_cache() -> None:
+    calls: list[str] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.url.path == "/":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text='<html><a href="/nous-rejoindre-equipe">Nous rejoindre</a></html>',
+            )
+        if request.url.path == "/nous-rejoindre-equipe":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text="<html>Écrivez à recrutement [at] acme-startup [dot] fr</html>",
+            )
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler))
+
+    # 1. SSRF URL must never hit network transport
+    ssrf_offer = JobOffer(
+        id="ssrf1",
+        source="wttj",
+        title="Dev",
+        company="Evil",
+        location="Paris",
+        contract_type="cdi",
+        url="https://www.welcometothejungle.com/fr/companies/evil/jobs/dev",
+        company_url="http://169.254.169.254/latest/meta-data/",
+        apply_url="https://jobs.lever.co/evil/123",
+    )
+    ssrf_res = enrich_offer_contact(ssrf_offer, client=client)
+    assert ssrf_res.contact_email == ""
+    assert ssrf_res.apply_channel == "ats"
+    assert calls == []
+
+    # 2. Discovers custom career link + de-obfuscates email + caches per domain
+    cache: dict[str, tuple[str, str]] = {}
+    good_offer = JobOffer(
+        id="ok1",
+        source="wttj",
+        title="Dev",
+        company="Acme Startup",
+        location="Lyon",
+        contract_type="alternance",
+        url="https://www.welcometothejungle.com/fr/companies/acme/jobs/dev",
+        company_url="https://acme-startup.fr",
+    )
+    res1 = enrich_offer_contact(good_offer, client=client, domain_cache=cache)
+    assert res1.contact_email == "recrutement@acme-startup.fr"
+    assert res1.apply_channel == "email"
+    call_count_after_first = len(calls)
+
+    # Second offer on same domain reuses cache without extra HTTP requests
+    res2 = enrich_offer_contact(good_offer, client=client, domain_cache=cache)
+    assert res2.contact_email == "recrutement@acme-startup.fr"
+    assert len(calls) == call_count_after_first
+
+    # 3. Blacklisted school email domains are rejected
+    school_email_offer = JobOffer(
+        id="sch1",
+        source="wttj",
+        title="Dev",
+        company="Partner",
+        location="Lyon",
+        contract_type="alternance",
+        url="https://example.com/job",
+        description="Contact: jobs@iscod.fr",
+    )
+    res3 = enrich_offer_contact(school_email_offer, extra_blocked_domains={"iscod.fr"})
+    assert res3.contact_email == ""

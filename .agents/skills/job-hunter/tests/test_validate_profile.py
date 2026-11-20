@@ -38,3 +38,28 @@ def test_validate_profile_success_and_missing_cv(tmp_path: Path) -> None:
     assert bad_report["valid"] is False
     assert any("CV file not found" in err for err in bad_report["errors"])
     assert cli.main(["validate-profile", "--profile", str(profile)]) == 1
+
+
+def test_validate_profile_rejects_invalid_email_and_non_pdf_cv(tmp_path: Path) -> None:
+    fake_pdf = tmp_path / "cv.pdf"
+    fake_pdf.write_text("this is plain text, not a PDF", encoding="utf-8")
+    profile = tmp_path / "profile.yaml"
+    profile.write_text(
+        yaml.safe_dump(
+            {
+                "candidate": {
+                    "full_name": "Alice Martin",
+                    "email": "not-an-email",
+                    "cv_path": str(fake_pdf),
+                    "links": {"portfolio": "javascript:alert(1)"},
+                },
+                "defaults": {"contracts": ["alternance"], "queries": ["Développeur Web"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = validate_profile(profile)
+    assert report["valid"] is False
+    assert any("not a valid email" in err for err in report["errors"])
+    assert any("%PDF-" in err for err in report["errors"])
+    assert any("candidate.links.portfolio" in w for w in report["warnings"])

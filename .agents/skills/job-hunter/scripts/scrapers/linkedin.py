@@ -127,7 +127,11 @@ class LinkedInScraper(BaseScraper):
                         offers.append(partial)
                         continue
                     polite_sleep(1.0, 2.0)
-                    d_resp = client.get(_LI_DETAIL_URL.format(job_id=job_id))
+                    try:
+                        d_resp = client.get(_LI_DETAIL_URL.format(job_id=job_id))
+                    except httpx.HTTPError:
+                        offers.append(partial)
+                        continue
                     if d_resp.status_code == 429:
                         rate_limited = True
                         offers.append(partial)

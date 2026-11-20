@@ -14,6 +14,7 @@ education:
   current_level: ""
   degree_level: ""
   alternance_rhythm: "3 semaines en entreprise / 1 semaine en formation"
+  stage_duration: ""
   contract_duration: "12 mois"
   availability: "Immédiate"
 
@@ -40,3 +41,9 @@ skills:
   specialties: []
 
 highlights: []
+
+# Optionnel : filtrage personnalisé et bonus de pertinence
+preferences:
+  exclude_companies: []
+  exclude_keywords: []
+  preferred_keywords: []

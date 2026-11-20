@@ -16,6 +16,7 @@ from ..contact_finder import extract_emails_from_text
 from ..filters import detect_language
 from ..http_headers import DEFAULT_HTTP_HEADERS, DEFAULT_USER_AGENT
 from ..models import ContractType, JobOffer, ScrapeResult
+from ..security import MAX_DESCRIPTION_CHARS, MAX_FIELD_CHARS, sanitize_untrusted_text, sanitize_url
 from ..text_utils import make_offer_id
 
 _ANTIBOT_MARKERS = (
@@ -24,9 +25,12 @@ _ANTIBOT_MARKERS = (
     "attention required! | cloudflare",
     "enable javascript and cookies to continue",
     "please verify you are a human",
+    "verify you are human",
     "captcha",
     "hcaptcha",
     "recaptcha",
+    "px-captcha",
+    "turnstile",
     "datadome",
     "/authwall",
     "authwall",
@@ -34,7 +38,7 @@ _ANTIBOT_MARKERS = (
 
 
 def is_antibot_response(status_code: int | None, html: str = "", url: str = "") -> bool:
-    """Detect HTTP 403/429 or anti-bot/login-wall pages without attempting any bypass."""
+    """Detect HTTP 403/429/503 or anti-bot/login-wall pages without attempting any bypass."""
     if status_code in (403, 429, 503):
         return True
     haystack = f"{url}\n{html[:12000]}".lower()
@@ -101,6 +105,11 @@ def parse_jsonld_fields(posting: dict[str, Any]) -> dict[str, str]:
     else:
         location = ""
 
+    remote = ""
+    loc_type = str(posting.get("jobLocationType", "")).strip().upper()
+    if loc_type == "TELECOMMUTE":
+        remote = "Remote"
+
     salary_obj = posting.get("baseSalary") or {}
     salary = ""
     if isinstance(salary_obj, dict):
@@ -119,6 +128,7 @@ def parse_jsonld_fields(posting: dict[str, Any]) -> dict[str, str]:
         "company": company,
         "company_url": company_url,
         "location": location,
+        "remote": remote,
         "description": html_to_clean_text(str(posting.get("description", ""))),
         "published_at": str(posting.get("datePosted", "")).strip(),
         "salary": salary,
@@ -140,30 +150,41 @@ def build_offer(
     published_at: str = "",
     salary: str = "",
 ) -> JobOffer:
-    """Create a normalized JobOffer with detected language and extracted emails."""
-    combined = f"{title}\n{description}"
+    """Create a sanitized, normalized JobOffer with detected language and extracted emails."""
+    clean_title = sanitize_untrusted_text(title, max_length=MAX_FIELD_CHARS, single_line=True)
+    clean_company = sanitize_untrusted_text(company, max_length=MAX_FIELD_CHARS, single_line=True)
+    clean_location = sanitize_untrusted_text(location, max_length=MAX_FIELD_CHARS, single_line=True)
+    clean_url = sanitize_url(url)
+    clean_apply_url = sanitize_url(apply_url) or clean_url
+    clean_company_url = sanitize_url(company_url)
+    clean_remote = sanitize_untrusted_text(remote, max_length=80, single_line=True)
+    clean_description = sanitize_untrusted_text(description, max_length=MAX_DESCRIPTION_CHARS)
+    clean_published = sanitize_untrusted_text(published_at, max_length=64, single_line=True)
+    clean_salary = sanitize_untrusted_text(salary, max_length=120, single_line=True)
+
+    combined = f"{clean_title}\n{clean_description}"
     return JobOffer(
-        id=make_offer_id(source, url, company, title),
+        id=make_offer_id(source, clean_url or url, clean_company, clean_title),
         source=source,
-        title=title.strip(),
-        company=company.strip(),
-        location=location.strip(),
+        title=clean_title,
+        company=clean_company,
+        location=clean_location,
         contract_type=contract_type,
-        url=url.strip(),
-        apply_url=(apply_url or url).strip(),
-        company_url=company_url.strip(),
-        remote=remote.strip(),
-        description=description.strip(),
-        published_at=published_at.strip(),
-        salary=salary.strip(),
+        url=clean_url,
+        apply_url=clean_apply_url,
+        company_url=clean_company_url,
+        remote=clean_remote,
+        description=clean_description,
+        published_at=clean_published,
+        salary=clean_salary,
         language=detect_language(combined),
-        emails_found=extract_emails_from_text(description),
+        emails_found=extract_emails_from_text(clean_description),
     )
 
 
 @contextmanager
 def playwright_context() -> Iterator[BrowserContext]:
-    """Provide a configured headless Chromium context for scraping."""
+    """Provide a hardened headless Chromium context (downloads disabled) for scraping."""
     extra_headers = {k: v for k, v in DEFAULT_HTTP_HEADERS.items() if k != "User-Agent"}
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
@@ -172,6 +193,7 @@ def playwright_context() -> Iterator[BrowserContext]:
             extra_http_headers=extra_headers,
             locale="fr-FR",
             viewport={"width": 1280, "height": 900},
+            accept_downloads=False,
         )
         try:
             yield context
@@ -181,19 +203,22 @@ def playwright_context() -> Iterator[BrowserContext]:
 
 
 def fetch_page_html(page: Page, url: str, wait_ms: int = 1200) -> tuple[int | None, str, str]:
-    """Navigate with Playwright and return (status_code, final_url, html)."""
+    """Navigate with Playwright and return (status_code, final_url, html) with navigation-race retries."""
     response = page.goto(url, wait_until="domcontentloaded", timeout=20000)
     page.wait_for_timeout(wait_ms)
     status = response.status if response else None
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             html = page.content()
             return status, page.url, html
         except PlaywrightError:
-            if attempt == 2:
+            if attempt == 4:
                 raise
-            page.wait_for_load_state("domcontentloaded", timeout=10000)
-            page.wait_for_timeout(500)
+            try:
+                page.wait_for_load_state("load", timeout=6000)
+            except PlaywrightError:
+                pass
+            page.wait_for_timeout(400 * (attempt + 1))
     return status, page.url, ""
 
 

@@ -1,4 +1,4 @@
-"""Validate job-hunter's profile.yaml and verify the attached CV PDF exists."""
+"""Validate job-hunter's profile.yaml and verify the attached CV PDF is safe and valid."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .security import is_valid_email_syntax, sanitize_url, validate_pdf_file
 
 DEFAULT_PROFILE_PATH = Path(__file__).resolve().parent.parent / "references" / "profile.yaml"
 VALID_CONTRACTS = {"stage", "alternance", "cdd", "cdi"}
@@ -31,7 +33,16 @@ def validate_profile(profile_path: Path) -> dict[str, Any]:
             "warnings": [],
         }
 
-    data = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        return {
+            "valid": False,
+            "profile_path": str(profile_path),
+            "errors": [f"Invalid YAML syntax: {exc}"],
+            "warnings": [],
+        }
+
     if not isinstance(data, dict):
         return {
             "valid": False,
@@ -41,10 +52,27 @@ def validate_profile(profile_path: Path) -> dict[str, Any]:
         }
 
     candidate = data.get("candidate") or {}
+    if not isinstance(candidate, dict):
+        errors.append("candidate section must be a mapping")
+        candidate = {}
+
     for field in ("full_name", "email", "cv_path"):
         val = candidate.get(field, "")
         if not val or _is_placeholder(val):
             errors.append(f"candidate.{field} missing or placeholder")
+
+    email_raw = str(candidate.get("email", "")).strip()
+    if email_raw and not _is_placeholder(email_raw) and not is_valid_email_syntax(email_raw):
+        errors.append(f"candidate.email is not a valid email address: {email_raw}")
+
+    links = candidate.get("links") or {}
+    if isinstance(links, dict):
+        for link_name, link_val in links.items():
+            if not link_val:
+                continue
+            cleaned_link = sanitize_url(str(link_val))
+            if not cleaned_link:
+                warnings.append(f"candidate.links.{link_name} is not a valid http(s) URL: {link_val}")
 
     cv_raw = str(candidate.get("cv_path", "")).strip()
     if cv_raw and not _is_placeholder(cv_raw):
@@ -53,10 +81,20 @@ def validate_profile(profile_path: Path) -> dict[str, Any]:
             cv_file = (profile_path.parent / cv_file).resolve()
         if not cv_file.is_file():
             errors.append(f"CV file not found: {cv_file}")
-        elif cv_file.suffix.lower() != ".pdf":
-            warnings.append(f"CV file is not a PDF ({cv_file.suffix}); draft.eml only attaches PDFs cleanly")
+        else:
+            if cv_file.suffix.lower() != ".pdf":
+                warnings.append(
+                    f"CV file is not a PDF ({cv_file.suffix}); draft.eml only attaches valid PDFs"
+                )
+            ok_pdf, pdf_err = validate_pdf_file(cv_file)
+            if not ok_pdf:
+                errors.append(pdf_err)
 
     defaults = data.get("defaults") or {}
+    if not isinstance(defaults, dict):
+        errors.append("defaults section must be a mapping")
+        defaults = {}
+
     contracts = defaults.get("contracts") or []
     if not contracts:
         errors.append("defaults.contracts is empty")
@@ -73,12 +111,31 @@ def validate_profile(profile_path: Path) -> dict[str, Any]:
     if invalid_sources:
         warnings.append(f"Unknown sources in defaults.sources: {invalid_sources}")
 
+    education = data.get("education") or {}
+    if isinstance(education, dict):
+        if "alternance" in contracts and not education.get("alternance_rhythm"):
+            warnings.append("education.alternance_rhythm is empty (recommended for alternance applications)")
+        if "stage" in contracts and not (education.get("stage_duration") or education.get("contract_duration")):
+            warnings.append("education.stage_duration is empty (recommended for stage applications)")
+
     skills = data.get("skills") or {}
-    if not any(skills.get(k) for k in ("languages", "frameworks", "tools", "specialties")):
+    if not isinstance(skills, dict) or not any(
+        skills.get(k) for k in ("languages", "frameworks", "tools", "specialties")
+    ):
         warnings.append("skills section has no technical skills listed")
 
     if not (data.get("highlights") or []):
         warnings.append("highlights section is empty (recommended for personalized emails)")
+
+    preferences = data.get("preferences")
+    if preferences is not None:
+        if not isinstance(preferences, dict):
+            errors.append("preferences section must be a mapping")
+        else:
+            for pref_key in ("exclude_companies", "exclude_keywords", "preferred_keywords"):
+                pref_val = preferences.get(pref_key)
+                if pref_val is not None and not isinstance(pref_val, list):
+                    errors.append(f"preferences.{pref_key} must be a list of strings")
 
     return {
         "valid": len(errors) == 0,

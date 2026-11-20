@@ -12,9 +12,13 @@ OfferStatus = Literal[
     "candidates_extracted",
     "drafted",
     "sent",
+    "interview",
+    "offer",
+    "rejected",
     "ignored",
 ]
 ScrapeStatus = Literal["ok", "blocked_antibot", "error"]
+ApplyChannel = Literal["email", "ats", "jobboard"]
 
 
 @dataclass(slots=True)
@@ -65,7 +69,7 @@ class JobOffer:
 
 @dataclass(slots=True)
 class FilterDecision:
-    """Result of deterministic school/CFA filtering."""
+    """Result of deterministic school/CFA or preference filtering."""
 
     is_valid: bool
     reason: str = ""
@@ -73,11 +77,17 @@ class FilterDecision:
 
 @dataclass(slots=True)
 class EnrichedOffer:
-    """Validated offer enriched with contact resolution metadata."""
+    """Validated offer enriched with contact resolution, relevance scoring, and security checks."""
 
     offer: JobOffer
     contact_email: str = ""
     email_source: str = "none"
+    apply_channel: ApplyChannel = "jobboard"
+    match_score: int = 0
+    matched_skills: list[str] = field(default_factory=list)
+    missing_skills: list[str] = field(default_factory=list)
+    score_breakdown: dict[str, int] = field(default_factory=dict)
+    security_warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dictionary."""
@@ -85,15 +95,27 @@ class EnrichedOffer:
             "offer": self.offer.to_dict(),
             "contact_email": self.contact_email,
             "email_source": self.email_source,
+            "apply_channel": self.apply_channel,
+            "match_score": self.match_score,
+            "matched_skills": list(self.matched_skills),
+            "missing_skills": list(self.missing_skills),
+            "score_breakdown": dict(self.score_breakdown),
+            "security_warnings": list(self.security_warnings),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EnrichedOffer:
-        """Deserialize an enriched offer dictionary."""
+        """Deserialize an enriched offer dictionary (backward-compatible with older runs)."""
         return cls(
             offer=JobOffer.from_dict(data["offer"]),
             contact_email=data.get("contact_email", ""),
             email_source=data.get("email_source", "none"),
+            apply_channel=data.get("apply_channel", "email" if data.get("contact_email") else "jobboard"),
+            match_score=int(data.get("match_score", 0)),
+            matched_skills=list(data.get("matched_skills", [])),
+            missing_skills=list(data.get("missing_skills", [])),
+            score_breakdown=dict(data.get("score_breakdown", {})),
+            security_warnings=list(data.get("security_warnings", [])),
         )
 
 
