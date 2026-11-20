@@ -15,7 +15,30 @@ Workflow automatisé et sécurisé de recherche d'offres (`stage`, `alternance`,
 ### `profile-setup` (`.agents/skills/job-hunter/profile-setup/`)
 Configuration et validation sécurisée du profil candidat (`references/profile.yaml`) à partir d'un CV PDF ou texte.
 
-## Installation rapide
+## Installation via votre agent IA (recommandé)
+
+### 1. Donner ce prompt à votre agent
+Ouvrez votre agent IA (Google Antigravity, Claude Code, Codex, OpenCode, etc.) dans votre dossier de travail et envoyez-lui :
+
+```text
+Installe le skill job-hunter depuis https://github.com/Psyko38/skill-job-hunter.git :
+1. Clone le repo (ou copie .agents/skills/job-hunter/ dans ce workspace, ou en global dans ~/.gemini/config/skills/job-hunter/).
+2. Installe les dépendances Python (`uv sync --project <chemin_skill> --extra dev`) et Chromium (`uv run --project <chemin_skill> playwright install chromium`).
+3. Configure `references/profile.yaml` à partir de mon CV situé ici : <chemin/vers/mon_CV.pdf> (en suivant `profile-setup/SKILL.md`).
+4. Lance `uv run --project <chemin_skill> job-hunter doctor` et confirme-moi que `"ready": true`.
+```
+
+### 2. Où l'agent découvre automatiquement le skill
+- **Dans un projet (recommandé)** : `.agents/skills/job-hunter/` à la racine du workspace (découvert automatiquement par Antigravity et les agents compatibles `.agents/skills/`).
+- **En global sur la machine (Antigravity)** : `~/.gemini/config/skills/job-hunter/` pour l'utiliser dans tous vos projets.
+
+### 3. Exemples de prompts après installation
+Une fois `"ready": true` confirmé par `doctor`, demandez simplement à votre agent :
+- *« Utilise `job-hunter` pour chercher des offres selon mon profil et montre-moi les meilleures. »*
+- *« Prépare les brouillons `.md` et `.eml` pour les offres retenues. »*
+- *« Affiche les stats de mes candidatures et celles à relancer cette semaine. »*
+
+## Installation manuelle (sans agent)
 
 ```bash
 uv sync --project .agents/skills/job-hunter --extra dev
