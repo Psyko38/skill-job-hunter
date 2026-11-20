@@ -1,0 +1,42 @@
+candidate:
+  full_name: "À COMPLÉTER"
+  email: "À COMPLÉTER"
+  phone: ""
+  location: "Lyon / Remote"
+  cv_path: "/chemin/absolu/vers/votre_cv.pdf"
+  links:
+    github: ""
+    linkedin: ""
+    portfolio: ""
+
+education:
+  school: ""
+  current_level: ""
+  degree_level: ""
+  alternance_rhythm: "3 semaines en entreprise / 1 semaine en formation"
+  contract_duration: "12 mois"
+  availability: "Immédiate"
+
+defaults:
+  contracts:
+    - "alternance"
+  queries:
+    - "Développeur Fullstack"
+    - "Développeur Web"
+  location: "Lyon"
+  remote_ok: true
+  sources:
+    - "wttj"
+    - "hellowork"
+    - "indeed"
+    - "linkedin"
+
+skills:
+  spoken_languages:
+    - "Français"
+  languages: []
+  frameworks: []
+  tools: []
+  specialties: []
+
+highlights: []

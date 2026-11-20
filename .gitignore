@@ -1,0 +1,16 @@
+# Personal candidate data & CVs (kept locally, never pushed)
+.agents/skills/job-hunter/references/profile.yaml
+.agents/skills/job-hunter/references/*.pdf
+*.pdf
+drafts/
+.agents/skills/job-hunter/data/
+
+# Python / tool caches
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+*.pyc
+.DS_Store
