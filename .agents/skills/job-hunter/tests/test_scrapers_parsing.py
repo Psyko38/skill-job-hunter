@@ -1,5 +1,8 @@
 """Offline parser unit tests for all 4 jobboard scrapers using HTML fixtures."""
 
+import httpx
+import pytest
+
 from scripts.http_headers import DEFAULT_HTTP_HEADERS, DEFAULT_USER_AGENT
 from scripts.scrapers.hellowork import (
     parse_hellowork_detail_html,
@@ -10,6 +13,8 @@ from scripts.scrapers.indeed import (
     parse_indeed_search_cards,
 )
 from scripts.scrapers.linkedin import (
+    LinkedInScraper,
+    build_linkedin_search_url,
     parse_linkedin_detail_html,
     parse_linkedin_search_cards,
 )
@@ -150,3 +155,72 @@ def test_indeed_jsonld_fallback_and_windows_headers() -> None:
     assert "Windows NT 10.0" in DEFAULT_USER_AGENT
     assert "Linux" not in DEFAULT_USER_AGENT
     assert DEFAULT_HTTP_HEADERS["Sec-CH-UA-Platform"] == '"Windows"'
+
+
+def test_linkedin_contract_urls_prefilter_and_429_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert "f_JT=I%2CT%2CC" in build_linkedin_search_url("Dev Web", "alternance", "Lyon", False)
+    assert "alternance" in build_linkedin_search_url("Dev Web", "alternance", "Lyon", False)
+    assert "f_JT=I" in build_linkedin_search_url("Dev Web", "stage", "Lyon", False)
+    assert "f_JT=C%2CT" in build_linkedin_search_url("Dev Web", "cdd", "Lyon", False)
+    assert "f_JT=F" in build_linkedin_search_url("Dev Web", "cdi", "Lyon", False)
+
+    search_html = """
+    <ul>
+      <li>
+        <a class="base-card__full-link" href="https://fr.linkedin.com/jobs/view/stage-dev-111">Link</a>
+        <h3 class="base-search-card__title">Stage Développeur Fullstack</h3>
+        <h4 class="base-search-card__subtitle">StageCorp</h4>
+        <span class="job-search-card__location">Lyon</span>
+      </li>
+      <li>
+        <a class="base-card__full-link" href="https://fr.linkedin.com/jobs/view/alt-dev-222">Link</a>
+        <h3 class="base-search-card__title">Alternance Développeur PHP</h3>
+        <h4 class="base-search-card__subtitle">AltCorp</h4>
+        <span class="job-search-card__location">Lyon</span>
+        <time datetime="2026-11-19">1 day ago</time>
+      </li>
+    </ul>
+    """
+    detail_attempts: dict[str, int] = {"222": 0}
+    called_urls: list[str] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        called_urls.append(url)
+        if "seeMoreJobPostings" in url:
+            return httpx.Response(200, text=search_html)
+        if "jobPosting/222" in url:
+            detail_attempts["222"] += 1
+            if detail_attempts["222"] == 1:
+                return httpx.Response(429, headers={"retry-after": "3"})
+            return httpx.Response(
+                200,
+                text='<div class="show-more-less-html__markup">Alternance PHP Laravel à Lyon.</div>',
+            )
+        return httpx.Response(404)
+
+    monkeypatch.setattr("scripts.scrapers.linkedin.polite_sleep", lambda *args, **kwargs: None)
+    real_client_cls = httpx.Client
+
+    def _mock_client(*args: object, **kwargs: object) -> httpx.Client:
+        kwargs["transport"] = httpx.MockTransport(_handler)
+        return real_client_cls(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("scripts.scrapers.linkedin.httpx.Client", _mock_client)
+
+    res = LinkedInScraper().search(
+        query="Développeur PHP",
+        contract="alternance",
+        location="Lyon",
+        remote=False,
+        limit=5,
+    )
+    assert res.status == "ok"
+    assert res.error_message == ""
+    assert len(res.offers) == 1
+    assert res.offers[0].company == "AltCorp"
+    assert res.offers[0].published_at == "2026-11-19"
+    assert "Alternance PHP Laravel" in res.offers[0].description
+    # Stage card 111 must NEVER trigger a detail HTTP call
+    assert not any("111" in u for u in called_urls)
+    assert detail_attempts["222"] == 2

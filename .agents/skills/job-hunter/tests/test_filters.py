@@ -93,6 +93,28 @@ def test_is_contract_compatible() -> None:
     assert not is_contract_compatible(_make_offer(title="Alternance Développeur Web"), "cdd")
     assert is_contract_compatible(_make_offer(title="Stage ou Alternance - Développeur"), "alternance")
     assert is_contract_compatible(_make_offer(title="Développeur Full Stack"), "alternance")
+    # Description-level mismatches
+    assert not is_contract_compatible(
+        _make_offer(
+            title="Développeur Web",
+            description="Offre de stage de 6 mois à pourvoir dès janvier.",
+        ),
+        "alternance",
+    )
+    assert not is_contract_compatible(
+        _make_offer(
+            title="Développeur Web",
+            description="Stage uniquement, pas d'alternance possible.",
+        ),
+        "alternance",
+    )
+    assert is_contract_compatible(
+        _make_offer(
+            title="Développeur Web",
+            description="Poste ouvert en stage ou en alternance (12 mois).",
+        ),
+        "alternance",
+    )
 
 
 def test_evaluate_profile_preferences_and_expanded_schools() -> None:

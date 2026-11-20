@@ -187,9 +187,18 @@ _ALTERNANCE_RE = re.compile(
 _CDI_RE = re.compile(r"\bcdi\b")
 _CDD_RE = re.compile(r"\bcdd\b")
 
+_NO_ALTERNANCE_DESC_RE = re.compile(
+    r"\b(?:pas d[' ]alternance|sans alternance|stage uniquement|uniquement en stage|"
+    r"aucun(?:e)? (?:offre|poste)? ?en alternance|ne (?:recrutons|proposons|prenons) pas d[' ]alternance)\b"
+)
+_NO_STAGE_DESC_RE = re.compile(
+    r"\b(?:pas de stage|sans stage|alternance uniquement|uniquement en alternance|"
+    r"ne (?:recrutons|proposons|prenons) pas de stagiaire)\b"
+)
+
 
 def is_contract_compatible(offer: JobOffer, requested_contract: ContractType) -> bool:
-    """Reject obvious contract mismatches in the job title across all 4 contract types."""
+    """Reject obvious contract mismatches in title or unambiguous description statements."""
     title_norm = normalize_text(offer.title)
     has_stage = bool(_STAGE_RE.search(title_norm))
     has_alt = bool(_ALTERNANCE_RE.search(title_norm))
@@ -208,6 +217,23 @@ def is_contract_compatible(offer: JobOffer, requested_contract: ContractType) ->
     elif requested_contract == "cdd":
         if (has_stage or has_alt or has_cdi) and not has_cdd:
             return False
+
+    desc_norm = normalize_text(offer.description)
+    if not desc_norm:
+        return True
+
+    combined_norm = f"{title_norm}\n{desc_norm}"
+    if requested_contract == "alternance":
+        if _NO_ALTERNANCE_DESC_RE.search(desc_norm):
+            return False
+        if _STAGE_RE.search(desc_norm) and not _ALTERNANCE_RE.search(combined_norm):
+            return False
+    elif requested_contract == "stage":
+        if _NO_STAGE_DESC_RE.search(desc_norm):
+            return False
+        if _ALTERNANCE_RE.search(desc_norm) and not _STAGE_RE.search(combined_norm):
+            return False
+
     return True
 
 
